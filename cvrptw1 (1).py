@@ -5,6 +5,8 @@ Created on Tue Jan 12 21:46:01 2026
 
 @author: martijnkrikke
 """
+
+
 import matplotlib.pyplot as plt
 import VRPSolverEasy as solver
 import math
