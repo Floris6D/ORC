@@ -12,9 +12,13 @@ example_array_7x7 = np.array([
 ])
 
 
-def generate_randoms(n, clip = [0.9, 3], mean = 1):
+def generate_randoms(n, clip = [0.9, 3], mean = 1, distr = "gamma"):
     """Generate n random numbers, exponentially distributed."""
-    randoms = np.random.exponential(mean, n)
+    if distr == "gamma":
+        np.random.gamma(2, scale=1, size=n)
+    else:
+        print("<generate_randoms> Warning: Unknown distribution, defaulting to exponential.")
+        randoms = np.random.exponential(mean, n)
     if clip: randoms = np.clip(randoms, clip[0], clip[1])
     return randoms
 

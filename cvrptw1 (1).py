@@ -7,12 +7,14 @@ Created on Tue Jan 12 21:46:01 2026
 """
 
 
+
 import matplotlib.pyplot as plt
 import VRPSolverEasy as solver
 import math
 import numpy as np
 from scipy.spatial.distance import cdist
-
+from distance_mutator import generate_correlated_mutations
+from constants import *
 
 def read_instance(filepath):
     """
@@ -200,7 +202,8 @@ model0.add_vehicle_type(id=1,
     capacity=data["vehicle_capacity"],
     tw_begin=data["depot_tw_begin"],
     tw_end=data["depot_tw_end"],
-    var_cost_dist=1,
+    var_cost_time=1,
+    var_cost_dist = 1
     )
 
 for i in range(total_customers):
@@ -214,13 +217,15 @@ for i in range(total_customers):
     
 
 rows, cols = distance_matrix.shape
+
+
 for i in range(rows):
     for j in range(i + 1, cols):
         dist = distance_matrix[i][j]
         model0.add_link(
             start_point_id=i, 
             end_point_id=j, 
-            distance=dist, 
+            distance=1, 
             time=dist
         )
 
@@ -250,7 +255,8 @@ for i in range(number_of_trucks):
 # door trial en error leek dat een chille voor de verandering,
 # en het is op zich wel logisch voor verkeer oid
 np.random.seed(0)
-noise_matrix = np.random.gamma(2, scale=1, size=distance_matrix.shape)
+# noise_matrix = np.random.gamma(2, scale=1, size=distance_matrix.shape)
+noise_matrix = generate_correlated_mutations(distance_matrix.shape[0], clip=[0.9, 5], mean=2)
 distance_matrix_stochastic = distance_matrix * (1 + noise_matrix)
 
 
@@ -275,7 +281,7 @@ for i, capacity in enumerate(load_per_truck):
         capacity=capacity,
         tw_begin=data["depot_tw_begin"],
         tw_end=data["depot_tw_end"],
-        var_cost_dist=1
+        var_cost_time=1
     )
 
 # Twee keer zo veel trucks met max capacity  
@@ -289,7 +295,8 @@ model1.add_vehicle_type(id=number_of_trucks + 1,
     capacity=data["vehicle_capacity"],
     tw_begin=data["depot_tw_begin"],
     tw_end=data["depot_tw_end"],
-    var_cost_dist=1,
+    var_cost_time=1,
+    var_cost_dist = COST_PER_SWITCHED_PACKAGE,
     fixed_cost=10
     )
 
@@ -312,7 +319,7 @@ for i in range(rows):
         model1.add_link(
             start_point_id=i, 
             end_point_id=j, 
-            distance=dist, 
+            distance=1, 
             time=dist
         )
 
