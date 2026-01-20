@@ -16,6 +16,10 @@ from scipy.spatial.distance import cdist
 from distance_mutator import generate_correlated_mutations
 from constants import *
 
+
+
+
+
 def read_instance(filepath):
     """
     Leest een Solomon VRPTW file en returnt een dictionary met specifieke variabelen.
@@ -173,162 +177,185 @@ def plot_solution(data, solution):
     plt.show()
 
 
-path = 'In/c201.txt' 
-data = read_instance(path)
-
-total_customers = 50
-
-#Distance matrix berekenen
-all_coordinates = [data["depot_coordinates"]] + data["cust_coordinates"][:total_customers]
-coords_array = np.array(all_coordinates)
-distance_matrix = cdist(coords_array, coords_array)
 
 
-
-# model. depot -> vehicle -> customer -> links er in
-model0 = solver.Model()
-
-model0.add_depot(id=0,
-    service_time=data["depot_service_time"],
-    tw_begin=data["depot_tw_begin"],
-    tw_end=data["depot_tw_end"]
-    )
-
-
-model0.add_vehicle_type(id=1,
-    start_point_id=0,
-    end_point_id=0,
-    max_number=data["max_number"],
-    capacity=data["vehicle_capacity"],
-    tw_begin=data["depot_tw_begin"],
-    tw_end=data["depot_tw_end"],
-    var_cost_time=1,
-    var_cost_dist = 1
-    )
-
-for i in range(total_customers):
-    model0.add_customer(
-        id=i + 1,
-        service_time=data["cust_service_time"][i],
-        tw_begin=data["cust_tw_begin"][i],
-        tw_end=data["cust_tw_end"][i],
-        demand=data["cust_demands"][i]
-    )    
-    
-
-rows, cols = distance_matrix.shape
+def get_data(path, total_customers=TOTAL_CUSTOMERS):
+    if isinstance(path, str):
+        if ".txt" not in path:
+            path += ".txt"
+        if "In/" not in path:
+            path = "In/" + path
+    data = read_instance(path)
+    #Distance matrix berekenen
+    all_coordinates = [data["depot_coordinates"]] + data["cust_coordinates"][:total_customers]
+    coords_array = np.array(all_coordinates)
+    distance_matrix = cdist(coords_array, coords_array)
+    return data, distance_matrix
 
 
-for i in range(rows):
-    for j in range(i + 1, cols):
-        dist = distance_matrix[i][j]
-        model0.add_link(
-            start_point_id=i, 
-            end_point_id=j, 
-            distance=1, 
-            time=dist
+def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, print_solution=True):
+    # model. depot -> vehicle -> customer -> links er in
+    # alpha is de 'zekerheids multiplier', dus alpha =1 betekend geen zekerheidsmarge
+    model0 = solver.Model()
+
+    model0.add_depot(id=0,
+        service_time=data["depot_service_time"],
+        tw_begin=data["depot_tw_begin"],
+        tw_end=data["depot_tw_end"]
         )
 
-# model solven
-model0.set_parameters(time_limit=10, solver_name="CLP")
-model0.solve()
-solution = model0.solution
 
-#print(solution)
-#plot_solution(data, solution)
-
-
-
-
-################Fase twee
-#routes en loads uit de solution halen
-route = model0.solution.routes
-number_of_trucks = len(route)
-load_per_truck = []
-for i in range(number_of_trucks):
-    value = model0.solution.routes[i].cap_consumption[-1]
-    load_per_truck.append(int(value))
-    
-    
-
-#Random distance, ik gebruik nu even gamma voor de randomness, 
-# door trial en error leek dat een chille voor de verandering,
-# en het is op zich wel logisch voor verkeer oid
-np.random.seed(0)
-# noise_matrix = np.random.gamma(2, scale=1, size=distance_matrix.shape)
-noise_matrix = generate_correlated_mutations(distance_matrix.shape[0], clip=[0.9, 5], mean=2)
-distance_matrix_stochastic = distance_matrix * (1 + noise_matrix)
-
-
-
-
-### Tweede model beginnen
-model1 = solver.Model()
-
-model1.add_depot(id=0,
-    service_time=data["depot_service_time"],
-    tw_begin=data["depot_tw_begin"],
-    tw_end=data["depot_tw_end"]
-    )
-
-# verschillende trucks per load, max 1
-for i, capacity in enumerate(load_per_truck):
-    model1.add_vehicle_type(
-        id=i + 1,
+    model0.add_vehicle_type(id=1,
         start_point_id=0,
         end_point_id=0,
-        max_number=1,
-        capacity=capacity,
+        max_number=data["max_number"],
+        capacity=data["vehicle_capacity"],
         tw_begin=data["depot_tw_begin"],
         tw_end=data["depot_tw_end"],
-        var_cost_time=1
-    )
-
-# Twee keer zo veel trucks met max capacity  
-# Het max aantal staat hier weer op het originele max aantal, 
-# dus je kan twee keer te veel trucks hebben.
-# ook een fixed cost toegevoegd, zodat de originele trucks zo veel mogelijk worden gebruikt.
-model1.add_vehicle_type(id=number_of_trucks + 1,
-    start_point_id=0,
-    end_point_id=0,
-    max_number=data["max_number"],
-    capacity=data["vehicle_capacity"],
-    tw_begin=data["depot_tw_begin"],
-    tw_end=data["depot_tw_end"],
-    var_cost_time=1,
-    var_cost_dist = COST_PER_SWITCHED_PACKAGE,
-    fixed_cost=10
-    )
-
-
-for i in range(total_customers):
-    model1.add_customer(
-        id=i + 1,
-        service_time=data["cust_service_time"][i],
-        tw_begin=data["cust_tw_begin"][i],
-        tw_end=data["cust_tw_end"][i],
-        demand=data["cust_demands"][i]
-    )    
-    
-
-
-rows, cols = distance_matrix_stochastic.shape
-for i in range(rows):
-    for j in range(i + 1, cols):
-        dist = distance_matrix_stochastic[i][j]
-        model1.add_link(
-            start_point_id=i, 
-            end_point_id=j, 
-            distance=1, 
-            time=dist
+        var_cost_time=1,
+        var_cost_dist = 1
         )
 
-# model solven en plotten
-model1.set_parameters(time_limit=10, solver_name="CLP")
-model1.solve()
-print(model1.solution)
-plot_solution(data, model1.solution)
+    for i in range(total_customers):
+        model0.add_customer(
+            id=i + 1,
+            service_time=data["cust_service_time"][i],
+            tw_begin=data["cust_tw_begin"][i],
+            tw_end=data["cust_tw_end"][i],
+            demand=data["cust_demands"][i]
+        )    
+        
 
+    rows, cols = distance_matrix.shape
+
+
+    for i in range(rows):
+        for j in range(i + 1, cols):
+            dist = distance_matrix[i][j] *alpha
+            model0.add_link(
+                start_point_id=i, 
+                end_point_id=j, 
+                distance=dist, 
+                time=dist
+            )
+
+    # model solven
+    model0.set_parameters(time_limit=100, solver_name="CLP")
+    model0.solve()
+    if print_solution:
+        print(model0.solution)
+        plot_solution(data, model0.solution)
+    
+
+    return model0
+
+
+
+def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print_solution=True, noise_matrix=None, noise_params=NOISE_PARAMS):
+    ################Fase twee
+    #routes en loads uit de solution halen
+    route = model0.solution.routes
+    number_of_trucks = len(route)
+    load_per_truck = []
+    for i in range(number_of_trucks):
+        value = model0.solution.routes[i].cap_consumption[-1]
+        load_per_truck.append(int(value))
+    
+    np.random.seed(0)
+    if not noise_matrix:
+        noise_matrix = generate_correlated_mutations(distance_matrix.shape[0], noise_params)
+    distance_matrix_stochastic = distance_matrix * (1 + noise_matrix)
+
+    ### Tweede model beginnen
+    model1 = solver.Model()
+
+    model1.add_depot(id=0,
+        service_time=data["depot_service_time"],
+        tw_begin=data["depot_tw_begin"],
+        tw_end=data["depot_tw_end"]
+        )
+
+    # verschillende trucks per load, max 1
+    for i, capacity in enumerate(load_per_truck):
+        model1.add_vehicle_type(
+            id=i + 1,
+            start_point_id=0,
+            end_point_id=0,
+            max_number=1,
+            capacity=capacity,
+            tw_begin=data["depot_tw_begin"],
+            tw_end=data["depot_tw_end"],
+            var_cost_time=1, 
+            var_cost_dist=1
+        )
+
+    # Twee keer zo veel trucks met max capacity  
+    # Het max aantal staat hier weer op het originele max aantal, 
+    # dus je kan twee keer te veel trucks hebben.
+    # ook een fixed cost toegevoegd, zodat de originele trucks zo veel mogelijk worden gebruikt.
+    model1.add_vehicle_type(id=number_of_trucks + 1,
+        start_point_id=0,
+        end_point_id=0,
+        max_number=data["max_number"],
+        capacity=data["vehicle_capacity"],
+        tw_begin=data["depot_tw_begin"],
+        tw_end=data["depot_tw_end"],
+        var_cost_time=1,
+        var_cost_dist=1,
+        fixed_cost=FIXED_COST_PER_TRUCK
+        )
+
+
+    for i in range(total_customers):
+        model1.add_customer(
+            id=i + 1,
+            service_time=data["cust_service_time"][i],
+            tw_begin=data["cust_tw_begin"][i],
+            tw_end=data["cust_tw_end"][i],
+            demand=data["cust_demands"][i]
+        )    
+        
+
+
+    rows, cols = distance_matrix_stochastic.shape
+    for i in range(rows):
+        for j in range(i + 1, cols):
+            dist = distance_matrix_stochastic[i][j]
+            model1.add_link(
+                start_point_id=i, 
+                end_point_id=j, 
+                distance=dist, 
+                time=dist
+            )
+
+    # model solven en plotten
+    model1.set_parameters(time_limit=100, solver_name="CLP")
+    model1.solve()
+    if print_solution:
+        print(model1.solution)
+        plot_solution(data, model1.solution)
+    return model1
+
+
+def run_instance(path, alpha, total_customers=TOTAL_CUSTOMERS, print_solution=True, noise_params=NOISE_PARAMS):
+    #path can either be of form 'c201' or 'In/c201.txt'
+    data, distance_matrix = get_data(path, total_customers=total_customers)
+
+    model0 = phase1(data, distance_matrix, 
+                    alpha=alpha, 
+                    total_customers=total_customers, 
+                    print_solution=print_solution)
+
+    model1 = phase2(data, distance_matrix, 
+                    model0, 
+                    total_customers=total_customers, 
+                    print_solution=print_solution, 
+                    noise_params=noise_params)
+    return model0, model1
+
+
+#ex 
+# model0, model1 = run_instance('c201', alpha=1.1, total_customers=20, print_solution=True, noise_params=NOISE_PARAMS)
 
 
 
