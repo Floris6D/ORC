@@ -20,6 +20,7 @@ from constants import *
 
 
 
+
 def read_instance(filepath):
     """
     Leest een Solomon VRPTW file en returnt een dictionary met specifieke variabelen.
@@ -254,6 +255,7 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, pr
     # alpha is de 'zekerheids multiplier', dus alpha =1 betekend geen zekerheidsmarge
     model0 = solver.Model()
 
+
     model0.add_depot(id=0,
         service_time=data["depot_service_time"],
         tw_begin=data["depot_tw_begin"],
@@ -318,7 +320,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
         load_per_truck.append(int(value))
     
     np.random.seed(0)
-    if not noise_matrix:
+    if noise_matrix is None:
         noise_matrix = generate_correlated_mutations(distance_matrix.shape[0], noise_params)
     distance_matrix_stochastic = distance_matrix * noise_matrix
 
@@ -417,9 +419,9 @@ def run_instance(path,
         plot_two_solutions(data, model0.solution, model1.solution, titles=["Phase 1", "Phase 2"])
     return model0, model1
 
-
-#ex 
-model0, model1 = run_instance('c201', alpha=1.1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
+if __name__ == "__main__":
+    #ex 
+    model0, model1 = run_instance('c201', alpha=1.1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
 
 
 
