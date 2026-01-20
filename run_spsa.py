@@ -130,20 +130,20 @@ def plot_trace(trace):
 def main():
     logger = logging.getLogger(__name__)
     #change this to be dynamic
-    total_customers = 40
+    total_customers = 30
     noise_params = NOISE_PARAMS
-    path = 'c201'
+    path = 'c205'
     logger.info(f"Starting SPSA optimization for VRPTW with {total_customers}.")
     
     data, distance_matrix = get_data(path, total_customers=total_customers)
-    # data = increase_time_windows(data, increase_amount=100)
+    data = increase_time_windows(data, increase_amount=100)
 
     eval_function = partial(run_instances, data=data, distance_matrix=distance_matrix, total_customers=total_customers, noise_params=noise_params)
     alpha_trace = SPSA(eval_function, 
-                       params_init=(1.0, 5), 
-                       a=np.array([0.1, 0.3]), 
-                       c=np.array([1, 10]),  
-                       alpha_range=(1, 2),
+                       params_init=(1.5, 10), 
+                       a=np.array([0.05, 0.25]), 
+                       c=np.array([0.5, 6]),  
+                       alpha_range=(1, 3),
                        beta_range = (0, 20), 
                        max_iter=15, 
                        logger = logger)
