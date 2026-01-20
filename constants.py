@@ -1,7 +1,7 @@
 # COST_PER_SWITCHED_PACKAGE = 2
-FIXED_COST_PER_TRUCK = 20
-TOTAL_CUSTOMERS = 35
+FIXED_COST_PER_TRUCK = 10
+TOTAL_CUSTOMERS = 40
 NOISE_PARAMS = {
-    "clip": [0.9, 1.4],
-    "mean": 1,
+    "clip": [0.9, 2],
+    "mean": 1.0,
     "distr": "gamma"}

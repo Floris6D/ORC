@@ -10,8 +10,7 @@ example_array_7x7 = np.array([
     [4, 3, 2, 1, 0, 1, 2],
     [5, 4, 3, 2, 1, 0, 1],
     [6, 5, 4, 3, 2, 1, 0]
-])
-
+    ])
 
 def generate_randoms(n, clip = [0.9, 3], mean = 1, distr = "gamma"):
     """Generate n random numbers, exponentially distributed."""

@@ -3,6 +3,7 @@ from constants import *
 from distance_mutator import generate_correlated_mutations
 from functools import partial
 import numpy as np
+import matplotlib.pyplot as plt
 
 #TODO: build safety for if alpha is too high and phase 1 already crashes
 #TODO: build safety for if phase 2 crashes once
@@ -40,10 +41,11 @@ def run_instances(data, distance_matrix,
 def SPSA(
     eval_function,
     alpha_init=1.0,
-    a=0.15,          # constant learning rate
-    c=0.02,          # constant perturbation size
+    a=0.01,          # constant learning rate
+    c=0.05,          # constant perturbation size
     alpha_range=(0.1, 2),
-    max_iter=100
+    max_iter=100, 
+    logger=None
 ):
     """
     1D SPSA with:
@@ -54,15 +56,16 @@ def SPSA(
 
     alpha = alpha_init
     alpha_trace = [alpha]
-    for _ in range(max_iter):
+    for iteretaion in range(max_iter):
+        logger.info(f"SPSA Iteration {iteretaion+1}/{max_iter}, current alpha: {alpha:.4f}")
         delta = np.random.choice([-1.0, 1.0])
 
         alpha_plus = np.clip(alpha + c * delta, *alpha_range)
         alpha_minus = np.clip(alpha - c * delta, *alpha_range)
 
-        # CRN: single call evaluates both
+        # CRN: single call evaluates bothS
         y_plus, y_minus = eval_function(alphas=(alpha_plus, alpha_minus))
-
+        logger.info(f"  Evaluated at \nalpha+={alpha_plus:.4f}, cost={y_plus:.2f}; \nalpha-={alpha_minus:.4f}, cost={y_minus:.2f}")
         # SPSA gradient estimate
         g_hat = (y_plus - y_minus) / (2.0 * c * delta)
         # Gradient step
@@ -74,8 +77,6 @@ def SPSA(
     return alpha_trace
 
 def plot_trace(trace):
-    import matplotlib.pyplot as plt
-
     plt.plot(trace, marker='o')
     plt.title('SPSA Optimization Trace')
     plt.xlabel('Iteration')
@@ -84,15 +85,25 @@ def plot_trace(trace):
     plt.show()
 
 def main():
+    logger = logging.getLogger(__name__)
     #change this to be dynamic
     total_customers = TOTAL_CUSTOMERS
     noise_params = NOISE_PARAMS
     path = 'c201'
-
+    logger.info(f"Starting SPSA optimization for VRPTW with {total_customers}.")
     data, distance_matrix = get_data(path, total_customers=total_customers)
     eval_function = partial(run_instances, data=data, distance_matrix=distance_matrix, total_customers=total_customers, noise_params=noise_params)
-    alpha_trace = SPSA(eval_function, alpha_init=1.0, a=0.05, c=0.02, alpha_range=(0.9, 1.5), max_iter=50)
+    alpha_trace = SPSA(eval_function, alpha_init=1.0, a=0.01, c=0.06, alpha_range=(0.9, 1.1), max_iter=10, logger = logger)
     plot_trace(alpha_trace)
 
 if __name__ == "__main__":
+    import logging
+
+    logging.basicConfig(
+        filename="logs/vrp_experiment.log",
+        filemode="w",
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s"
+    )
+
     main()

@@ -235,7 +235,6 @@ def plot_two_solutions(data, solution1, solution2, titles=None):
     plt.show()
 
 
-
 def get_data(path, total_customers=TOTAL_CUSTOMERS):
     if isinstance(path, str):
         if ".txt" not in path:
@@ -306,7 +305,6 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, pr
     
 
     return model0
-
 
 
 def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print_solution=True, noise_matrix=None, noise_params=NOISE_PARAMS):
@@ -421,7 +419,7 @@ def run_instance(path,
 
 if __name__ == "__main__":
     #ex 
-    model0, model1 = run_instance('c201', alpha=1.1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
+    model0, model1 = run_instance('c205', alpha=1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
 
 
 
