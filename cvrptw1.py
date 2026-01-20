@@ -213,7 +213,7 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, pr
         tw_begin=data["depot_tw_begin"],
         tw_end=data["depot_tw_end"],
         var_cost_time=1,
-        var_cost_dist = 1
+        # var_cost_dist = 1
         )
 
     for i in range(total_customers):
@@ -264,7 +264,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
     np.random.seed(0)
     if not noise_matrix:
         noise_matrix = generate_correlated_mutations(distance_matrix.shape[0], noise_params)
-    distance_matrix_stochastic = distance_matrix * (1 + noise_matrix)
+    distance_matrix_stochastic = distance_matrix * noise_matrix
 
     ### Tweede model beginnen
     model1 = solver.Model()
@@ -286,7 +286,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
             tw_begin=data["depot_tw_begin"],
             tw_end=data["depot_tw_end"],
             var_cost_time=1, 
-            var_cost_dist=1
+            # var_cost_dist=1
         )
 
     # Twee keer zo veel trucks met max capacity  
@@ -301,7 +301,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
         tw_begin=data["depot_tw_begin"],
         tw_end=data["depot_tw_end"],
         var_cost_time=1,
-        var_cost_dist=1,
+        # var_cost_dist=1,
         fixed_cost=FIXED_COST_PER_TRUCK
         )
 
@@ -355,7 +355,7 @@ def run_instance(path, alpha, total_customers=TOTAL_CUSTOMERS, print_solution=Tr
 
 
 #ex 
-# model0, model1 = run_instance('c201', alpha=1.1, total_customers=20, print_solution=True, noise_params=NOISE_PARAMS)
+model0, model1 = run_instance('c201', alpha=1.1, total_customers=20, print_solution=True, noise_params=NOISE_PARAMS)
 
 
 
