@@ -248,8 +248,15 @@ def get_data(path, total_customers=TOTAL_CUSTOMERS):
     distance_matrix = cdist(coords_array, coords_array)
     return data, distance_matrix
 
+def increase_time_windows(data, increase_amount=100):
+    """Increase all time windows by a fixed amount."""
+    data["depot_tw_end"] += increase_amount
+    data["depot_tw_begin"] = max(0, data["depot_tw_begin"] - increase_amount)
+    data["cust_tw_begin"] = [max(0, twb - increase_amount) for twb in data["cust_tw_begin"]]
+    data["cust_tw_end"] = [twe + increase_amount for twe in data["cust_tw_end"]]
+    return data
 
-def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, print_solution=True):
+def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, beta = 5, print_solution=True):
     # model. depot -> vehicle -> customer -> links er in
     # alpha is de 'zekerheids multiplier', dus alpha =1 betekend geen zekerheidsmarge
     model0 = solver.Model()
@@ -288,7 +295,7 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, pr
 
     for i in range(rows):
         for j in range(i + 1, cols):
-            dist = distance_matrix[i][j] *alpha
+            dist = distance_matrix[i][j] *alpha + beta
             model0.add_link(
                 start_point_id=i, 
                 end_point_id=j, 
@@ -297,7 +304,7 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, pr
             )
 
     # model solven
-    model0.set_parameters(time_limit=100, solver_name="CLP")
+    model0.set_parameters(time_limit=10000, solver_name="CLP")
     model0.solve()
     if print_solution:
         print(model0.solution)
@@ -349,6 +356,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
     # Het max aantal staat hier weer op het originele max aantal, 
     # dus je kan twee keer te veel trucks hebben.
     # ook een fixed cost toegevoegd, zodat de originele trucks zo veel mogelijk worden gebruikt.
+    
     model1.add_vehicle_type(id=number_of_trucks + 1,
         start_point_id=0,
         end_point_id=0,
@@ -385,7 +393,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
             )
 
     # model solven en plotten
-    model1.set_parameters(time_limit=100, solver_name="CLP")
+    model1.set_parameters(time_limit=10000, solver_name="CLP")
     model1.solve()
     if print_solution:
         print(model1.solution)
@@ -417,9 +425,33 @@ def run_instance(path,
         plot_two_solutions(data, model0.solution, model1.solution, titles=["Phase 1", "Phase 2"])
     return model0, model1
 
+def _test_run_multiple_params_phase1(path,
+                  params, 
+                  total_customers=TOTAL_CUSTOMERS):
+    #path can either be of form 'c201' or 'In/c201.txt'
+    data, distance_matrix = get_data(path, total_customers=total_customers)
+    data = increase_time_windows(data, increase_amount=100)
+    results = {}
+    models = []
+    for param in params:
+        alpha = param[0]
+        beta = param[1]
+        model0 = phase1(data, distance_matrix, 
+                        alpha=alpha, 
+                        beta=beta,
+                        total_customers=total_customers, 
+                        print_solution=False)
+        results[alpha] = model0.solution.value
+        models.append(model0)
+    plot_two_solutions(data, models[0].solution, models[1].solution, titles=[f"Phase 1 (params={params[0]})", f"Phase 1 (params={params[1]})"])
+    return results
+
+
+
 if __name__ == "__main__":
     #ex 
-    model0, model1 = run_instance('c205', alpha=1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
+    # model0, model1 = run_instance('c205', alpha=1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
+    _test_run_multiple_params_phase1('rc107', params=[(1.0, 0), (1.5, 10)], total_customers=100)
 
 
 
