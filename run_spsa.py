@@ -2,8 +2,11 @@ from cvrptw1 import get_data, phase1, phase2
 from constants import *
 from distance_mutator import generate_correlated_mutations
 from functools import partial
-#TODO: build safety for if alpha is too high and phase 1 already crashes
+import numpy as np
 
+#TODO: build safety for if alpha is too high and phase 1 already crashes
+#TODO: build safety for if phase 2 crashes once
+#TODO: build safety for if phases crash more often
 from contextlib import redirect_stdout, redirect_stderr
 import io
 
@@ -33,9 +36,6 @@ def run_instances(data, distance_matrix,
             if model1.solution.is_defined():
                 result.append(model1.solution.value)
     return tuple(result)
-
-
-import numpy as np
 
 def SPSA(
     eval_function,
@@ -88,8 +88,11 @@ def main():
     total_customers = TOTAL_CUSTOMERS
     noise_params = NOISE_PARAMS
     path = 'c201'
+
     data, distance_matrix = get_data(path, total_customers=total_customers)
     eval_function = partial(run_instances, data=data, distance_matrix=distance_matrix, total_customers=total_customers, noise_params=noise_params)
     alpha_trace = SPSA(eval_function, alpha_init=1.0, a=0.05, c=0.02, alpha_range=(0.9, 1.5), max_iter=50)
     plot_trace(alpha_trace)
-main()
+
+if __name__ == "__main__":
+    main()
