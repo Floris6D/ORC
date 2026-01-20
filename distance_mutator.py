@@ -40,7 +40,7 @@ def colorplot_matrix(matrix, title="Matrix", xlabel="X", ylabel="Y"):
     plt.show()
 
 
-mutations = generate_correlated_mutations(10)
-colorplot_matrix(mutations, title="Distance Mutation Matrix", xlabel="Points", ylabel="Points")
+# mutations = generate_correlated_mutations(10)
+# colorplot_matrix(mutations, title="Distance Mutation Matrix", xlabel="Points", ylabel="Points")
     
 
