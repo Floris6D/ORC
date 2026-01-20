@@ -1,8 +1,8 @@
 # COST_PER_SWITCHED_PACKAGE = 2
 FIXED_COST_FOR_RELOADING = 10
-TOTAL_CUSTOMERS = 40
+TOTAL_CUSTOMERS = 30
 NOISE_PARAMS = {
-    "clip": [0.9, 5],
+    "clip": [0.9, 4],
     "mean": 2,
     "distr": "gamma"}
 

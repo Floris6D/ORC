@@ -401,7 +401,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
                 time=dist
             )
 
-        # Add nodes where either original truck or proxy truck HAS to go to, 
+    # Add nodes where either original truck or proxy truck HAS to go to, 
     # and only these truck types are allowed there
     # Essentially an XOR gate (exactly one, but not both)
     # Boom, very cool
@@ -411,14 +411,12 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
         truck_proxy = truck_link[truck_OG]
         xor_node_id = total_customers + 1 + i
         model1.add_customer(
-
             id=xor_node_id,
             service_time=0,
             tw_begin=data["depot_tw_begin"],
             tw_end=data["depot_tw_end"],
             demand=1,
             incompatible_vehicles = [vt for vt in all_vehicle_types if vt not in [truck_OG, truck_proxy]],
-            
         )
         
         model1.add_link(
@@ -503,7 +501,7 @@ if __name__ == "__main__":
     model0, model1 = run_instance('c205', 
                                   alpha=1.05, 
                                   beta=5, 
-                                  total_customers=40, 
+                                  total_customers=30, 
                                   plot_both_solutions=True,
                                   print_solution=True, 
                                   noise_params=NOISE_PARAMS,
