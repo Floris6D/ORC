@@ -176,6 +176,62 @@ def plot_solution(data, solution):
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.show()
 
+def plot_two_solutions(data, solution1, solution2, titles=None):
+    """
+    Plot twee oplossingen naast elkaar bovenop de klantlocaties.
+    """
+    if titles is None:
+        titles = ["Oplossing 1", "Oplossing 2"]
+    
+    cust_x = [c[0] for c in data['cust_coordinates']]
+    cust_y = [c[1] for c in data['cust_coordinates']]
+    depot_x, depot_y = data['depot_coordinates']
+
+    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+    
+    solutions = [solution1, solution2]
+
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'cyan', 'magenta']
+
+    for ax, sol, title in zip(axes, solutions, titles):
+        # Klanten
+        ax.scatter(cust_x, cust_y, c='lightgray', edgecolors='black', s=30, label='Klanten')
+        # Depot
+        ax.scatter(depot_x, depot_y, c='black', marker='s', s=100, label='Depot', zorder=10)
+
+        # Routes
+        for i, route in enumerate(sol.routes):
+            route_ids = route.point_ids
+            x_coords = []
+            y_coords = []
+            for node_id in route_ids:
+                if node_id == 0:
+                    x_coords.append(depot_x)
+                    y_coords.append(depot_y)
+                else:
+                    cust_idx = node_id - 1
+                    if 0 <= cust_idx < len(data['cust_coordinates']):
+                        x_coords.append(data['cust_coordinates'][cust_idx][0])
+                        y_coords.append(data['cust_coordinates'][cust_idx][1])
+            color = colors[i % len(colors)]
+            ax.plot(x_coords, y_coords, c=color, linewidth=2, label=f'Route {i+1}', alpha=0.8)
+            
+            # Optionele pijltjes
+            for k in range(len(x_coords) - 1):
+                mid_x = (x_coords[k] + x_coords[k+1]) / 2
+                mid_y = (y_coords[k] + y_coords[k+1]) / 2
+                dx = (x_coords[k+1] - x_coords[k]) * 0.1
+                dy = (y_coords[k+1] - y_coords[k]) * 0.1
+                ax.arrow(mid_x, mid_y, dx, dy, shape='full', lw=0, length_includes_head=True, head_width=1.5, color=color)
+
+        ax.set_title(f"{title} (Kosten: {round(sol.value, 2)})")
+        ax.set_xlabel('X Coördinaat')
+        ax.set_ylabel('Y Coördinaat')
+        ax.grid(True, linestyle='--', alpha=0.5)
+        ax.legend()
+    
+    plt.tight_layout()
+    plt.show()
 
 
 
@@ -337,7 +393,12 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
     return model1
 
 
-def run_instance(path, alpha, total_customers=TOTAL_CUSTOMERS, print_solution=True, noise_params=NOISE_PARAMS):
+def run_instance(path,
+                  alpha, 
+                  total_customers=TOTAL_CUSTOMERS,  
+                  noise_params=NOISE_PARAMS, 
+                  print_solution=False,
+                  plot_both_solutions=False):
     #path can either be of form 'c201' or 'In/c201.txt'
     data, distance_matrix = get_data(path, total_customers=total_customers)
 
@@ -351,11 +412,14 @@ def run_instance(path, alpha, total_customers=TOTAL_CUSTOMERS, print_solution=Tr
                     total_customers=total_customers, 
                     print_solution=print_solution, 
                     noise_params=noise_params)
+    
+    if plot_both_solutions:
+        plot_two_solutions(data, model0.solution, model1.solution, titles=["Phase 1", "Phase 2"])
     return model0, model1
 
 
 #ex 
-model0, model1 = run_instance('c201', alpha=1.1, total_customers=20, print_solution=True, noise_params=NOISE_PARAMS)
+model0, model1 = run_instance('c201', alpha=1.1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
 
 
 
