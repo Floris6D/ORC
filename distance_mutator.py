@@ -27,6 +27,7 @@ def generate_correlated_mutations(n, noise_params = NOISE_PARAMS):
     clip = noise_params.get("clip", NOISE_PARAMS["clip"])
     mean = noise_params.get("mean", NOISE_PARAMS["mean"])
     dist = noise_params.get("distr", NOISE_PARAMS["distr"])
+
     row_factors = generate_randoms(n, clip, mean, dist)
     col_factors = generate_randoms(n, clip, mean, dist).reshape((n, 1))
     mutations = row_factors * col_factors
@@ -42,8 +43,11 @@ def colorplot_matrix(matrix, title="Matrix", xlabel="X", ylabel="Y"):
     plt.ylabel(ylabel)
     plt.show()
 
+def main():
+    mutations = generate_correlated_mutations(10)
+    colorplot_matrix(mutations, title="Distance Mutation Matrix", xlabel="Points", ylabel="Points")
 
-# mutations = generate_correlated_mutations(10)
-# colorplot_matrix(mutations, title="Distance Mutation Matrix", xlabel="Points", ylabel="Points")
+if __name__ == "__main__":
+    main()
     
 
