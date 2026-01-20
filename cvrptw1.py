@@ -108,11 +108,24 @@ def read_instance(filepath):
         "cust_service_time": cust_service_time
     }
 
+def get_data(path, total_customers=TOTAL_CUSTOMERS):
+    if isinstance(path, str):
+        if ".txt" not in path:
+            path += ".txt"
+        if "In/" not in path:
+            path = "In/" + path
+    data = read_instance(path)
+    #Distance matrix berekenen
+    all_coordinates = [data["depot_coordinates"]] + data["cust_coordinates"][:total_customers]
+    coords_array = np.array(all_coordinates)
+    distance_matrix = cdist(coords_array, coords_array)
+    return data, distance_matrix
+
 def compute_euclidean_distance(x_i, x_j, y_i, y_j):
   """compute the euclidean distance between 2 points from graph"""
   return round(math.sqrt((x_i - x_j)**2 + (y_i - y_j)**2), 3)
  
-def plot_solution(data, solution):
+def plot_solution(data, solution, total_customers):
     """
     Plot de routes van de oplossing bovenop de klantlocaties.
     """
@@ -150,7 +163,7 @@ def plot_solution(data, solution):
                 # Let op: ID 1 in solver = index 0 in jouw data-lijst
                 cust_idx = node_id - 1
                 # Check of index bestaat (voor het geval je niet alle klanten in het model stopt)
-                if 0 <= cust_idx < len(data['cust_coordinates']):
+                if 0 <= cust_idx < total_customers:
                     x_coords.append(data['cust_coordinates'][cust_idx][0])
                     y_coords.append(data['cust_coordinates'][cust_idx][1])
         
@@ -158,7 +171,7 @@ def plot_solution(data, solution):
         color = colors[i % len(colors)]
         
         # Teken de lijn
-        plt.plot(x_coords, y_coords, c=color, linewidth=2, label=f'Route {i+1}', alpha=0.8)
+        plt.plot(x_coords, y_coords, c=color, linewidth=2, label=f'Route {i+1}, id={route.vehicle_type_id}, #nodes={len(route_ids)}', alpha=0.8)
         
         # Optioneel: Pijltjes om de richting aan te geven (halverwege de lijnstukken)
         # Dit maakt de plot soms druk, dus je kunt dit weglaten als je wilt
@@ -177,7 +190,7 @@ def plot_solution(data, solution):
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.show()
 
-def plot_two_solutions(data, solution1, solution2, titles=None):
+def plot_two_solutions(data, solution1, solution2, total_customers, titles=None, proxy_extra_cost=0):
     """
     Plot twee oplossingen naast elkaar bovenop de klantlocaties.
     """
@@ -211,11 +224,11 @@ def plot_two_solutions(data, solution1, solution2, titles=None):
                     y_coords.append(depot_y)
                 else:
                     cust_idx = node_id - 1
-                    if 0 <= cust_idx < len(data['cust_coordinates']):
+                    if 0 <= cust_idx < total_customers:
                         x_coords.append(data['cust_coordinates'][cust_idx][0])
                         y_coords.append(data['cust_coordinates'][cust_idx][1])
             color = colors[i % len(colors)]
-            ax.plot(x_coords, y_coords, c=color, linewidth=2, label=f'Route {i+1}', alpha=0.8)
+            ax.plot(x_coords, y_coords, c=color, linewidth=2, label=f'Route {i+1}, id={route.vehicle_type_id}, #nodes={len(route_ids)}', alpha=0.8)
             
             # Optionele pijltjes
             for k in range(len(x_coords) - 1):
@@ -226,6 +239,8 @@ def plot_two_solutions(data, solution1, solution2, titles=None):
                 ax.arrow(mid_x, mid_y, dx, dy, shape='full', lw=0, length_includes_head=True, head_width=1.5, color=color)
 
         ax.set_title(f"{title} (Kosten: {round(sol.value, 2)})")
+        if "phase 2" in title.lower() or "phase2" in title.lower():
+            ax.set_title(f"{title} (Kosten: {round(sol.value - proxy_extra_cost, 2)} excl. proxy kosten)")
         ax.set_xlabel('X Coördinaat')
         ax.set_ylabel('Y Coördinaat')
         ax.grid(True, linestyle='--', alpha=0.5)
@@ -234,19 +249,6 @@ def plot_two_solutions(data, solution1, solution2, titles=None):
     plt.tight_layout()
     plt.show()
 
-
-def get_data(path, total_customers=TOTAL_CUSTOMERS):
-    if isinstance(path, str):
-        if ".txt" not in path:
-            path += ".txt"
-        if "In/" not in path:
-            path = "In/" + path
-    data = read_instance(path)
-    #Distance matrix berekenen
-    all_coordinates = [data["depot_coordinates"]] + data["cust_coordinates"][:total_customers]
-    coords_array = np.array(all_coordinates)
-    distance_matrix = cdist(coords_array, coords_array)
-    return data, distance_matrix
 
 def increase_time_windows(data, increase_amount=100):
     """Increase all time windows by a fixed amount."""
@@ -308,7 +310,7 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, be
     model0.solve()
     if print_solution:
         print(model0.solution)
-        plot_solution(data, model0.solution)
+        plot_solution(data, model0.solution, total_customers=total_customers)
     
 
     return model0
@@ -338,38 +340,47 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
         tw_end=data["depot_tw_end"]
         )
 
-    # verschillende trucks per load, max 1
+    #Adding both the original trucks, and the repalcement trucks
+    #tracking which original truck links to which proxy truck, used later to ensure that at least one will be chosen
+    #both get VERY_HIGH_COST to ensure that the optimal solution never uses both
+    
+    truck_link = {}
     for i, capacity in enumerate(load_per_truck):
+        #Original trucks
+        og_truck_id = i+1
         model1.add_vehicle_type(
-            id=i + 1,
+            id=og_truck_id,
             start_point_id=0,
             end_point_id=0,
             max_number=1,
-            capacity=capacity,
+            capacity=capacity+1,  #+1 for going through the XOR node with demand =1
             tw_begin=data["depot_tw_begin"],
             tw_end=data["depot_tw_end"],
             var_cost_time=1, 
-            # var_cost_dist=1
+            # var_cost_dist=1,
+            fixed_cost=VERY_HIGH_COST,
+            name=f"OG truck {i+1}"
         )
 
-    # Twee keer zo veel trucks met max capacity  
-    # Het max aantal staat hier weer op het originele max aantal, 
-    # dus je kan twee keer te veel trucks hebben.
-    # ook een fixed cost toegevoegd, zodat de originele trucks zo veel mogelijk worden gebruikt.
-    
-    model1.add_vehicle_type(id=number_of_trucks + 1,
-        start_point_id=0,
-        end_point_id=0,
-        max_number=data["max_number"],
-        capacity=data["vehicle_capacity"],
-        tw_begin=data["depot_tw_begin"],
-        tw_end=data["depot_tw_end"],
-        var_cost_time=1,
-        # var_cost_dist=1,
-        fixed_cost=FIXED_COST_PER_TRUCK
+        #Proxy trucks
+        proxy_truck_id  = og_truck_id + 100
+        model1.add_vehicle_type(id=proxy_truck_id,
+            start_point_id=0,
+            end_point_id=0,
+            max_number=1,
+            capacity=data["vehicle_capacity"]+1, #+1 for going through the XOR node with demand=1
+            tw_begin=data["depot_tw_begin"],
+            tw_end=data["depot_tw_end"],
+            var_cost_time=1,
+            # var_cost_dist=1,
+            fixed_cost=FIXED_COST_FOR_RELOADING + VERY_HIGH_COST,
+            name=f"Proxy truck {i+1}"
         )
 
+        truck_link[og_truck_id] = proxy_truck_id
 
+
+    #add the real customers
     for i in range(total_customers):
         model1.add_customer(
             id=i + 1,
@@ -378,8 +389,6 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
             tw_end=data["cust_tw_end"][i],
             demand=data["cust_demands"][i]
         )    
-        
-
 
     rows, cols = distance_matrix_stochastic.shape
     for i in range(rows):
@@ -392,37 +401,81 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
                 time=dist
             )
 
+        # Add nodes where either original truck or proxy truck HAS to go to, 
+    # and only these truck types are allowed there
+    # Essentially an XOR gate (exactly one, but not both)
+    # Boom, very cool
+    all_vehicle_types = list(truck_link.keys()) + list(truck_link.values())
+    
+    for i, truck_OG in enumerate(truck_link):
+        truck_proxy = truck_link[truck_OG]
+        xor_node_id = total_customers + 1 + i
+        model1.add_customer(
+
+            id=xor_node_id,
+            service_time=0,
+            tw_begin=data["depot_tw_begin"],
+            tw_end=data["depot_tw_end"],
+            demand=1,
+            incompatible_vehicles = [vt for vt in all_vehicle_types if vt not in [truck_OG, truck_proxy]],
+            
+        )
+        
+        model1.add_link(
+            start_point_id=0,
+            end_point_id=xor_node_id,
+            distance=0,
+            time=0,
+        )
+        for customer in range(1, total_customers + 1):
+            model1.add_link(
+                start_point_id=xor_node_id,
+                end_point_id=customer,
+                distance=0,
+                time=0,
+            )
+
+    # later needed for calculating actual cost, as the cost of the model is changed now
+    proxy_extra_cost = len(truck_link) * (VERY_HIGH_COST)
+    # len(truck_link) * VERY_HIGH_COST for the fixed costs of the proxy trucks
+
+
     # model solven en plotten
     model1.set_parameters(time_limit=10000, solver_name="CLP")
     model1.solve()
     if print_solution:
         print(model1.solution)
-        plot_solution(data, model1.solution)
-    return model1
-
+        plot_solution(data, model1.solution, total_customers=total_customers)
+    return model1, proxy_extra_cost
 
 def run_instance(path,
                   alpha, 
+                  beta,
                   total_customers=TOTAL_CUSTOMERS,  
                   noise_params=NOISE_PARAMS, 
                   print_solution=False,
-                  plot_both_solutions=False):
+                  plot_both_solutions=False,
+                  increase_tw_amount=0):
     #path can either be of form 'c201' or 'In/c201.txt'
     data, distance_matrix = get_data(path, total_customers=total_customers)
+    data = increase_time_windows(data, increase_amount=100)
 
-    model0 = phase1(data, distance_matrix, 
-                    alpha=alpha, 
+    model0 = phase1(data = data,
+                    distance_matrix = distance_matrix, 
+                    alpha = alpha, 
+                    beta = beta,
                     total_customers=total_customers, 
                     print_solution=print_solution)
 
-    model1 = phase2(data, distance_matrix, 
-                    model0, 
+    model1, proxy_extra_cost = phase2(data = data,
+                    distance_matrix = distance_matrix, 
+                    model0 = model0, 
                     total_customers=total_customers, 
                     print_solution=print_solution, 
                     noise_params=noise_params)
     
     if plot_both_solutions:
-        plot_two_solutions(data, model0.solution, model1.solution, titles=["Phase 1", "Phase 2"])
+        plot_two_solutions(data, model0.solution, model1.solution, total_customers=total_customers,  titles=["Phase 1", "Phase 2"], proxy_extra_cost=proxy_extra_cost)
     return model0, model1
 
 def _test_run_multiple_params_phase1(path,
@@ -431,7 +484,6 @@ def _test_run_multiple_params_phase1(path,
     #path can either be of form 'c201' or 'In/c201.txt'
     data, distance_matrix = get_data(path, total_customers=total_customers)
     data = increase_time_windows(data, increase_amount=100)
-    results = {}
     models = []
     for param in params:
         alpha = param[0]
@@ -441,17 +493,23 @@ def _test_run_multiple_params_phase1(path,
                         beta=beta,
                         total_customers=total_customers, 
                         print_solution=False)
-        results[alpha] = model0.solution.value
         models.append(model0)
-    plot_two_solutions(data, models[0].solution, models[1].solution, titles=[f"Phase 1 (params={params[0]})", f"Phase 1 (params={params[1]})"])
-    return results
+    plot_two_solutions(data, models[0].solution, models[1].solution, total_customers=total_customers, titles=[f"Phase 1 (params={params[0]})", f"Phase 1 (params={params[1]})"])
 
 
 
 if __name__ == "__main__":
     #ex 
-    # model0, model1 = run_instance('c205', alpha=1, total_customers=50, plot_both_solutions=True, noise_params=NOISE_PARAMS)
-    _test_run_multiple_params_phase1('rc107', params=[(1.0, 0), (1.5, 10)], total_customers=100)
+    model0, model1 = run_instance('c205', 
+                                  alpha=1.05, 
+                                  beta=5, 
+                                  total_customers=40, 
+                                  plot_both_solutions=True,
+                                  print_solution=True, 
+                                  noise_params=NOISE_PARAMS,
+                                  increase_tw_amount=100
+                                  )
+    # _test_run_multiple_params_phase1('rc107', params=[(1.0, 0), (1.5, 10)], total_customers=100)
 
 
 
