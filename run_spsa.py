@@ -1,3 +1,4 @@
+from unittest import result
 from cvrptw1 import get_data, phase1, phase2, increase_time_windows
 from constants import *
 from distance_mutator import generate_correlated_mutations
@@ -11,29 +12,47 @@ import matplotlib.pyplot as plt
 #TODO: build safety for if phases crash more often
 
 
-def run_instances(data, distance_matrix,
-                  param_sets = None, 
-                  total_customers=TOTAL_CUSTOMERS,  
-                  noise_params=NOISE_PARAMS):
-    #path can either be of form 'c201' or 'In/c201.txt'
+def run_instances(
+    data,
+    distance_matrix,
+    param_sets=None,
+    total_customers=TOTAL_CUSTOMERS,
+    noise_params=NOISE_PARAMS,
+    penalty=1e9,
+):
     noise_matrix = generate_correlated_mutations(len(distance_matrix), noise_params=noise_params)
-    result = []
-    for params in param_sets:           
-        model0 = phase1(data, distance_matrix, 
-                        alpha=params[0], 
-                        beta=params[1],
-                        total_customers=total_customers, 
-                        print_solution=False)
-        
-        model1, proxy_extra_cost = phase2(data, distance_matrix, 
-                        model0, 
-                        total_customers=total_customers, 
-                        print_solution=False, 
-                        noise_matrix=noise_matrix)
-        
-        if model1.solution.is_defined():
-            result.append(model1.solution.value - proxy_extra_cost)
-    return tuple(result)
+
+    def eval_one(params):
+        alpha, beta = float(params[0]), float(params[1])
+
+        try:
+            model0 = phase1(
+                data, distance_matrix,
+                alpha=alpha, beta=beta,
+                total_customers=total_customers,
+                print_solution=False
+            )
+        except Exception:
+            return penalty
+
+        try:
+            model1, proxy_extra_cost = phase2(
+                data, distance_matrix, model0,
+                total_customers=total_customers,
+                print_solution=False,
+                noise_matrix=noise_matrix
+            )
+        except Exception:
+            return penalty
+
+        if not model1.solution.is_defined():
+            return penalty
+
+        return model1.solution.value - proxy_extra_cost
+
+    # IMPORTANT: always return one value per param set
+    return tuple(eval_one(p) for p in param_sets)
+
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -81,6 +100,10 @@ def SPSA(
 
         # CRN: single call returns both evaluations
         y_plus, y_minus = eval_function(param_sets = (params_plus, params_minus))
+        
+        if not np.isfinite(y_plus) or not np.isfinite(y_minus):
+            raise ValueError(f"Non-finite objective returned: y_plus={y_plus}, y_minus={y_minus}")
+
 
         if logger is not None:
             logger.info(
@@ -132,7 +155,7 @@ def main():
     #change this to be dynamic
     total_customers = 30
     noise_params = NOISE_PARAMS
-    path = 'c205'
+    path = 'c101'
     logger.info(f"Starting SPSA optimization for VRPTW with {total_customers}.")
     
     data, distance_matrix = get_data(path, total_customers=total_customers)
@@ -142,8 +165,8 @@ def main():
     alpha_trace = SPSA(eval_function, 
                        params_init=(1.5, 10), 
                        a=np.array([0.05, 0.25]), 
-                       c=np.array([0.5, 6]),  
-                       alpha_range=(1, 3),
+                       c=np.array([0.05, 2]),  
+                       alpha_range=(1, 2),
                        beta_range = (0, 20), 
                        max_iter=15, 
                        logger = logger)
