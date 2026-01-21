@@ -310,7 +310,6 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, be
 
     return model0
 
-
 def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print_solution=True, noise_matrix=None, noise_params=NOISE_PARAMS):
     ################Fase twee
     #routes en loads uit de solution halen
@@ -490,6 +489,7 @@ def _test_run_multiple_params_phase1(path,
     plot_two_solutions(data, models[0].solution, models[1].solution, total_customers=total_customers, titles=[f"Phase 1 (params={params[0]})", f"Phase 1 (params={params[1]})"])
 
 
+
 def build_phase2_stochastic_matrix(distance_matrix, noise_params=NOISE_PARAMS, seed=None):
     """
     Build one realized Phase-2 (stochastic) matrix.
@@ -599,7 +599,8 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
         print_solution=print_solutions,
     )
 
-    # Print raw objectives
+    # Print raw objectives (DIT IS HET STUKJE GPT WAAR IK NOG NIET ZEKER OVER BEN OF IK T WEL EEN GOEDE MANIER
+    # VAN KOSTEN VERGELIJKEN VIND)
     max_real = total_customers  # depot=0, customers=1..total_customers
     routing_normal = compute_routing_cost_from_matrix(model_p2_normal.solution, distance_matrix_stochastic, max_real_node_id=max_real)
     routing_scratch = compute_routing_cost_from_matrix(model_p2_scratch.solution, distance_matrix_stochastic, max_real_node_id=max_real)
