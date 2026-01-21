@@ -6,8 +6,6 @@ Created on Tue Jan 12 21:46:01 2026
 @author: martijnkrikke
 """
 
-
-
 import matplotlib.pyplot as plt
 import VRPSolverEasy as solver
 import math
@@ -15,9 +13,6 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from distance_mutator import generate_correlated_mutations
 from constants import *
-
-
-
 
 
 
@@ -495,9 +490,163 @@ def _test_run_multiple_params_phase1(path,
     plot_two_solutions(data, models[0].solution, models[1].solution, total_customers=total_customers, titles=[f"Phase 1 (params={params[0]})", f"Phase 1 (params={params[1]})"])
 
 
+def build_phase2_stochastic_matrix(distance_matrix, noise_params=NOISE_PARAMS, seed=None):
+    """
+    Build one realized Phase-2 (stochastic) matrix.
+    We return both the noise_matrix and the realized distance/time matrix for reuse.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    noise_matrix = generate_correlated_mutations(distance_matrix.shape[0], noise_params)
+    distance_matrix_stochastic = distance_matrix * noise_matrix
+    return noise_matrix, distance_matrix_stochastic
+
+def compute_routing_cost_from_matrix(solution, time_matrix, max_real_node_id):
+    """
+    Compute routing cost using the realized time_matrix, but handle artificial nodes (XOR).
+    We 'compress' each route by removing artificial nodes, and sum costs between consecutive REAL nodes.
+    Real nodes are assumed to have ids 0..max_real_node_id.
+    """
+    total = 0.0
+    for r in solution.routes:
+        pts = r.point_ids
+        # keep only real nodes, in order
+        real_pts = [p for p in pts if p <= max_real_node_id]
+        # sum consecutive real-real travel times
+        for a, b in zip(real_pts[:-1], real_pts[1:]):
+            total += float(time_matrix[a][b])
+    return total
+
+def count_proxy_trucks_used(solution):
+    """
+    In your phase2(), proxy truck ids are og_id + 100.
+    So vehicle_type_id >= 100 indicates proxy.
+    """
+    proxy_used = 0
+    for r in solution.routes:
+        if r.vehicle_type_id >= 100:
+            proxy_used += 1
+    return proxy_used
+
+def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS, increase_tw_amount=100, noise_params=NOISE_PARAMS, seed=0, print_solutions=False):
+    """
+    1) Phase 1 benchmark (α=1,β=0) and Phase 1 buffered (α,beta), plotted side-by-side
+    2) Build ONE shared Phase-2 scenario (noise_matrix)
+    3) Phase 2 normal (phase2()) vs Phase 2 from scratch (phase1() on realized matrix), plotted side-by-side
+    """
+    data, distance_matrix = get_data(path, total_customers=total_customers)
+    data = increase_time_windows(data, increase_amount=increase_tw_amount)
+
+    # Phase 1 benchmark
+    model_p1_bench = phase1(
+        data=data,
+        distance_matrix=distance_matrix,
+        total_customers=total_customers,
+        alpha=1.0,
+        beta=0.0,
+        print_solution=print_solutions,
+    )
+
+    # Phase 1 buffered
+    model_p1_buf = phase1(
+        data=data,
+        distance_matrix=distance_matrix,
+        total_customers=total_customers,
+        alpha=alpha,
+        beta=beta,
+        print_solution=print_solutions,
+    )
+
+    # Plot Phase 1 comparison
+    plot_two_solutions(
+        data,
+        model_p1_bench.solution,
+        model_p1_buf.solution,
+        total_customers=total_customers,
+        titles=[
+            "Phase 1 benchmark (α=1, β=0)",
+            f"Phase 1 buffered (α={alpha}, β={beta})",
+        ],
+        proxy_extra_cost=0  # not relevant in Phase 1
+    )
+
+    # Build ONE shared Phase-2 scenario
+    noise_matrix, distance_matrix_stochastic = build_phase2_stochastic_matrix(
+        distance_matrix=distance_matrix,
+        noise_params=noise_params,
+        seed=seed,
+    )
+
+    # Phase 2 normal (uses buffered Phase-1 trucks)
+    model_p2_normal, proxy_extra_cost = phase2(
+        data=data,
+        distance_matrix=distance_matrix,
+        model0=model_p1_buf,
+        total_customers=total_customers,
+        print_solution=print_solutions,
+        noise_matrix=noise_matrix,
+        noise_params=noise_params,
+    )
+
+    # Phase 2 from scratch (does not take into account Phase 1 solution)
+    # IMPORTANT: alpha=1, beta=0 so we do not apply buffering again
+    model_p2_scratch = phase1(
+        data=data,
+        distance_matrix=distance_matrix_stochastic,
+        total_customers=total_customers,
+        alpha=1.0,
+        beta=0.0,
+        print_solution=print_solutions,
+    )
+
+    # Print raw objectives
+    max_real = total_customers  # depot=0, customers=1..total_customers
+    routing_normal = compute_routing_cost_from_matrix(model_p2_normal.solution, distance_matrix_stochastic, max_real_node_id=max_real)
+    routing_scratch = compute_routing_cost_from_matrix(model_p2_scratch.solution, distance_matrix_stochastic, max_real_node_id=max_real)
+
+    proxy_count = count_proxy_trucks_used(model_p2_normal.solution)
+    total_normal = routing_normal + proxy_count * FIXED_COST_FOR_RELOADING
+    total_scratch = routing_scratch  # no switching penalty in scratch
+
+    print("=== FAIR EVALUATION ON SAME REALIZED MATRIX ===")
+    print("Routing cost (Phase 2 normal):", routing_normal)
+    print("Routing cost (Phase 2 from scratch):", routing_scratch)
+    print("Proxy trucks used (normal):", proxy_count)
+    print("Switching/reloading cost (normal):", proxy_count * FIXED_COST_FOR_RELOADING)
+    print("Total cost (Phase 2 normal):", total_normal)
+    print("Total cost (Phase 2 from scratch):", total_scratch)
+
+
+    plot_two_solutions(
+        data,
+        model_p2_scratch.solution,
+        model_p2_normal.solution,
+        total_customers=total_customers,
+        titles=[
+            "Phase-2 from scratch",
+            f"Phase 2 normal (α={alpha}, β={beta})"
+        ],
+        proxy_extra_cost=proxy_extra_cost
+    )
+
 
 if __name__ == "__main__":
     #ex 
+    INSTANCE = "c201"         
+    ALPHA = 1.3
+    BETA = 5                     
+
+    run_two_phase_experiment(
+        path=INSTANCE,
+        alpha=ALPHA,
+        beta=BETA,
+        total_customers=30,
+        increase_tw_amount=100,
+        noise_params=NOISE_PARAMS,
+        seed=0,        
+        print_solutions=False,
+    )
+    '''
     model0, model1 = run_instance('c205', 
                                   alpha=1.05, 
                                   beta=5, 
@@ -507,21 +656,5 @@ if __name__ == "__main__":
                                   noise_params=NOISE_PARAMS,
                                   increase_tw_amount=100
                                   )
+    '''
     # _test_run_multiple_params_phase1('rc107', params=[(1.0, 0), (1.5, 10)], total_customers=100)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
