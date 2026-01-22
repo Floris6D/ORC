@@ -185,7 +185,7 @@ def plot_solution(data, solution, total_customers):
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.show()
 
-def plot_two_solutions(data, solution1, solution2, total_customers, titles=None, proxy_extra_cost=0):
+def plot_two_solutions(data, solution1, solution2, total_customers, titles=None, proxy_extra_cost=0, manual_costs = None):
     """
     Plot twee oplossingen naast elkaar bovenop de klantlocaties.
     """
@@ -234,7 +234,9 @@ def plot_two_solutions(data, solution1, solution2, total_customers, titles=None,
                 ax.arrow(mid_x, mid_y, dx, dy, shape='full', lw=0, length_includes_head=True, head_width=1.5, color=color)
 
         ax.set_title(f"{title} (Kosten: {round(sol.value, 2)})")
-        if "phase 2" in title.lower() or "phase2" in title.lower():
+        if manual_costs is not None:
+            ax.set_title(f"{title} (Kosten: {round(manual_costs[titles.index(title)], 2)})")
+        elif "phase 2" in title.lower() or "phase2" in title.lower():
             ax.set_title(f"{title} (Kosten: {round(sol.value - proxy_extra_cost, 2)} excl. proxy kosten)")
         ax.set_xlabel('X Coördinaat')
         ax.set_ylabel('Y Coördinaat')
@@ -274,7 +276,6 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, be
         tw_begin=data["depot_tw_begin"],
         tw_end=data["depot_tw_end"],
         var_cost_time=1,
-        # var_cost_dist = 1
         )
 
     for i in range(total_customers):
@@ -351,14 +352,14 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
             tw_begin=data["depot_tw_begin"],
             tw_end=data["depot_tw_end"],
             var_cost_time=1, 
-            # var_cost_dist=1,
             fixed_cost=VERY_HIGH_COST,
             name=f"OG truck {i+1}"
         )
 
         #Proxy trucks
         proxy_truck_id  = og_truck_id + 100
-        model1.add_vehicle_type(id=proxy_truck_id,
+        model1.add_vehicle_type(
+            id=proxy_truck_id,
             start_point_id=0,
             end_point_id=0,
             max_number=1,
@@ -366,7 +367,6 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
             tw_begin=data["depot_tw_begin"],
             tw_end=data["depot_tw_end"],
             var_cost_time=1,
-            # var_cost_dist=1,
             fixed_cost=FIXED_COST_FOR_RELOADING + VERY_HIGH_COST,
             name=f"Proxy truck {i+1}"
         )
@@ -419,7 +419,9 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
             distance=0,
             time=0,
         )
+
         for customer in range(1, total_customers + 1):
+            dist = distance_matrix_stochastic[0][customer]
             model1.add_link(
                 start_point_id=xor_node_id,
                 end_point_id=customer,
@@ -430,7 +432,6 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
     # later needed for calculating actual cost, as the cost of the model is changed now
     proxy_extra_cost = len(truck_link) * (VERY_HIGH_COST)
     # len(truck_link) * VERY_HIGH_COST for the fixed costs of the proxy trucks
-
 
     # model solven en plotten
     model1.set_parameters(time_limit=10000, solver_name="CLP")
@@ -450,7 +451,7 @@ def run_instance(path,
                   increase_tw_amount=0):
     #path can either be of form 'c201' or 'In/c201.txt'
     data, distance_matrix = get_data(path, total_customers=total_customers)
-    data = increase_time_windows(data, increase_amount=100)
+    data = increase_time_windows(data, increase_amount=increase_tw_amount)
 
     model0 = phase1(data = data,
                     distance_matrix = distance_matrix, 
@@ -589,7 +590,6 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
     )
 
     # Phase 2 from scratch (does not take into account Phase 1 solution)
-    # IMPORTANT: alpha=1, beta=0 so we do not apply buffering again
     model_p2_scratch = phase1(
         data=data,
         distance_matrix=distance_matrix_stochastic,
@@ -601,6 +601,8 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
 
     # Print raw objectives (DIT IS HET STUKJE GPT WAAR IK NOG NIET ZEKER OVER BEN OF IK T WEL EEN GOEDE MANIER
     # VAN KOSTEN VERGELIJKEN VIND)
+    boris_heeft_gelijk = True
+
     max_real = total_customers  # depot=0, customers=1..total_customers
     routing_normal = compute_routing_cost_from_matrix(model_p2_normal.solution, distance_matrix_stochastic, max_real_node_id=max_real)
     routing_scratch = compute_routing_cost_from_matrix(model_p2_scratch.solution, distance_matrix_stochastic, max_real_node_id=max_real)
@@ -608,7 +610,6 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
     proxy_count = count_proxy_trucks_used(model_p2_normal.solution)
     total_normal = routing_normal + proxy_count * FIXED_COST_FOR_RELOADING
     total_scratch = routing_scratch  # no switching penalty in scratch
-
     print("=== FAIR EVALUATION ON SAME REALIZED MATRIX ===")
     print("Routing cost (Phase 2 normal):", routing_normal)
     print("Routing cost (Phase 2 from scratch):", routing_scratch)
@@ -616,8 +617,7 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
     print("Switching/reloading cost (normal):", proxy_count * FIXED_COST_FOR_RELOADING)
     print("Total cost (Phase 2 normal):", total_normal)
     print("Total cost (Phase 2 from scratch):", total_scratch)
-
-
+    
     plot_two_solutions(
         data,
         model_p2_scratch.solution,
@@ -625,11 +625,11 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
         total_customers=total_customers,
         titles=[
             "Phase-2 from scratch",
-            f"Phase 2 normal (α={alpha}, β={beta})"
+            f"Phase 2 normal (α={alpha}, β={beta})\n(w/out switching cost of {proxy_count * FIXED_COST_FOR_RELOADING})",
         ],
-        proxy_extra_cost=proxy_extra_cost
+        # proxy_extra_cost=proxy_extra_cost,
+        manual_costs=[total_scratch, total_normal]
     )
-
 
 if __name__ == "__main__":
     #ex 
