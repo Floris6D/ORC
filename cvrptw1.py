@@ -5,7 +5,7 @@ Created on Tue Jan 12 21:46:01 2026
 
 @author: martijnkrikke
 """
-
+import os
 import matplotlib.pyplot as plt
 import VRPSolverEasy as solver
 import math
@@ -13,6 +13,13 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from distance_mutator import generate_correlated_mutations
 from constants import *
+import logging
+import time
+import pandas as pd
+import concurrent.futures
+import logging
+import time
+import ast
 
 
 
@@ -120,7 +127,7 @@ def compute_euclidean_distance(x_i, x_j, y_i, y_j):
   """compute the euclidean distance between 2 points from graph"""
   return round(math.sqrt((x_i - x_j)**2 + (y_i - y_j)**2), 3)
  
-def plot_solution(data, solution, total_customers):
+def plot_solution(data, solution, total_customers, custom_cost = None):
     """
     Plot de routes van de oplossing bovenop de klantlocaties.
     """
@@ -178,14 +185,26 @@ def plot_solution(data, solution, total_customers):
             plt.arrow(mid_x, mid_y, dx, dy, shape='full', lw=0, length_includes_head=True, head_width=1.5, color=color)
 
     # Opmaak
-    plt.title(f"Oplossing C201 (Kosten: {round(solution.value, 2)})")
+    if custom_cost is not None:
+        plt.title(f"Oplossing C201 (Kosten: {round(custom_cost, 2)})")
+    else:
+        plt.title(f"Oplossing C201 (Kosten: {round(solution.value, 2)})")
     plt.xlabel('X Coördinaat')
     plt.ylabel('Y Coördinaat')
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.5)
-    plt.show()
+    savename = 'plot_single'
+    import os
+    if not os.path.exists("plots"):
+        os.makedirs("plots")
+    i = 0
+    while os.path.exists(f"plots/{savename}_{i}.png"):
+        i += 1
+    plt.savefig(f"plots/{savename}_{i}.png")
+    print("Plot saved to:", f"plots/{savename}_{i}.png")
 
-def plot_two_solutions(data, solution1, solution2, total_customers, titles=None, proxy_extra_cost=0, manual_costs = None):
+
+def plot_two_solutions(data, solution1, solution2, total_customers, titles=None, proxy_extra_cost=0, manual_title = False):
     """
     Plot twee oplossingen naast elkaar bovenop de klantlocaties.
     """
@@ -234,8 +253,8 @@ def plot_two_solutions(data, solution1, solution2, total_customers, titles=None,
                 ax.arrow(mid_x, mid_y, dx, dy, shape='full', lw=0, length_includes_head=True, head_width=1.5, color=color)
 
         ax.set_title(f"{title} (Kosten: {round(sol.value, 2)})")
-        if manual_costs is not None:
-            ax.set_title(f"{title} (Kosten: {round(manual_costs[titles.index(title)], 2)})")
+        if manual_title:
+            ax.set_title(title)
         elif "phase 2" in title.lower() or "phase2" in title.lower():
             ax.set_title(f"{title} (Kosten: {round(sol.value - proxy_extra_cost, 2)} excl. proxy kosten)")
         ax.set_xlabel('X Coördinaat')
@@ -244,8 +263,15 @@ def plot_two_solutions(data, solution1, solution2, total_customers, titles=None,
         ax.legend()
     
     plt.tight_layout()
-    plt.show()
-
+    savename = 'plot'
+    import os
+    if not os.path.exists("plots"):
+        os.makedirs("plots")
+    i = 0
+    while os.path.exists(f"plots/{savename}_{i}.png"):
+        i += 1
+    plt.savefig(f"plots/{savename}_{i}.png")
+    print("Plot saved to:", f"plots/{savename}_{i}.png")
 
 def increase_time_windows(data, increase_amount=100):
     """Increase all time windows by a fixed amount."""
@@ -306,7 +332,7 @@ def phase1(data, distance_matrix, total_customers=TOTAL_CUSTOMERS, alpha = 1, be
     model0.solve()
     if print_solution:
         print(model0.solution)
-        plot_solution(data, model0.solution, total_customers=total_customers)
+        # plot_solution(data, model0.solution, total_customers=total_customers)
     
 
     return model0
@@ -438,7 +464,7 @@ def phase2(data, distance_matrix, model0, total_customers=TOTAL_CUSTOMERS, print
     model1.solve()
     if print_solution:
         print(model1.solution)
-        plot_solution(data, model1.solution, total_customers=total_customers)
+        # plot_solution(data, model1.solution, total_customers=total_customers)
     return model1, proxy_extra_cost
 
 def run_instance(path,
@@ -448,10 +474,17 @@ def run_instance(path,
                   noise_params=NOISE_PARAMS, 
                   print_solution=False,
                   plot_both_solutions=False,
-                  increase_tw_amount=0):
+                  increase_tw_amount=0,
+                  seed=0,
+                  only_return_cost=False):
     #path can either be of form 'c201' or 'In/c201.txt'
     data, distance_matrix = get_data(path, total_customers=total_customers)
     data = increase_time_windows(data, increase_amount=increase_tw_amount)
+    noise_matrix, distance_matrix_stochastic = build_phase2_stochastic_matrix(
+        distance_matrix=distance_matrix,
+        noise_params=noise_params,
+        seed=seed,
+    )
 
     model0 = phase1(data = data,
                     distance_matrix = distance_matrix, 
@@ -465,10 +498,15 @@ def run_instance(path,
                     model0 = model0, 
                     total_customers=total_customers, 
                     print_solution=print_solution, 
-                    noise_params=noise_params)
+                    noise_matrix=noise_matrix)
+    
+    cost = compute_routing_cost_from_matrix(model1.solution, distance_matrix_stochastic, max_real_node_id=total_customers) + count_proxy_trucks_used(model1.solution) * FIXED_COST_FOR_RELOADING
+
     
     if plot_both_solutions:
         plot_two_solutions(data, model0.solution, model1.solution, total_customers=total_customers,  titles=["Phase 1", "Phase 2"], proxy_extra_cost=proxy_extra_cost)
+    if only_return_cost:
+        return cost
     return model0, model1
 
 def _test_run_multiple_params_phase1(path,
@@ -488,8 +526,6 @@ def _test_run_multiple_params_phase1(path,
                         print_solution=False)
         models.append(model0)
     plot_two_solutions(data, models[0].solution, models[1].solution, total_customers=total_customers, titles=[f"Phase 1 (params={params[0]})", f"Phase 1 (params={params[1]})"])
-
-
 
 def build_phase2_stochastic_matrix(distance_matrix, noise_params=NOISE_PARAMS, seed=None):
     """
@@ -559,17 +595,19 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
     )
 
     # Plot Phase 1 comparison
-    plot_two_solutions(
-        data,
-        model_p1_bench.solution,
-        model_p1_buf.solution,
-        total_customers=total_customers,
-        titles=[
-            "Phase 1 benchmark (α=1, β=0)",
-            f"Phase 1 buffered (α={alpha}, β={beta})",
-        ],
-        proxy_extra_cost=0  # not relevant in Phase 1
-    )
+    if print_solutions and False:
+        plot_two_solutions(
+            data,
+            model_p1_bench.solution,
+            model_p1_buf.solution,
+            total_customers=total_customers,
+
+            titles=[
+                "Phase 1 benchmark (α=1, β=0)",
+                f"Phase 1 buffered (α={alpha}, β={beta})",
+            ],
+            proxy_extra_cost=0  # not relevant in Phase 1
+        )
 
     # Build ONE shared Phase-2 scenario
     noise_matrix, distance_matrix_stochastic = build_phase2_stochastic_matrix(
@@ -579,7 +617,7 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
     )
 
     # Phase 2 normal (uses buffered Phase-1 trucks)
-    model_p2_normal, proxy_extra_cost = phase2(
+    model_p2_normal, proxy_extra_cost_buffer = phase2(
         data=data,
         distance_matrix=distance_matrix,
         model0=model_p1_buf,
@@ -599,8 +637,7 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
         print_solution=print_solutions,
     )
 
-    # Print raw objectives (DIT IS HET STUKJE GPT WAAR IK NOG NIET ZEKER OVER BEN OF IK T WEL EEN GOEDE MANIER
-    # VAN KOSTEN VERGELIJKEN VIND)
+    # Print raw objectives 
     boris_heeft_gelijk = True
 
     max_real = total_customers  # depot=0, customers=1..total_customers
@@ -610,52 +647,376 @@ def run_two_phase_experiment(path, alpha, beta, total_customers=TOTAL_CUSTOMERS,
     proxy_count = count_proxy_trucks_used(model_p2_normal.solution)
     total_normal = routing_normal + proxy_count * FIXED_COST_FOR_RELOADING
     total_scratch = routing_scratch  # no switching penalty in scratch
-    print("=== FAIR EVALUATION ON SAME REALIZED MATRIX ===")
-    print("Routing cost (Phase 2 normal):", routing_normal)
-    print("Routing cost (Phase 2 from scratch):", routing_scratch)
-    print("Proxy trucks used (normal):", proxy_count)
-    print("Switching/reloading cost (normal):", proxy_count * FIXED_COST_FOR_RELOADING)
-    print("Total cost (Phase 2 normal):", total_normal)
-    print("Total cost (Phase 2 from scratch):", total_scratch)
-    
-    plot_two_solutions(
-        data,
-        model_p2_scratch.solution,
-        model_p2_normal.solution,
+    if print_solutions:
+        print("=== FAIR EVALUATION ON SAME REALIZED MATRIX ===")
+        print("Routing cost (Phase 2 normal):", routing_normal)
+        print("Routing cost (Phase 2 from scratch):", routing_scratch)
+        print("Proxy trucks used (normal):", proxy_count)
+        print("Switching/reloading cost (normal):", proxy_count * FIXED_COST_FOR_RELOADING)
+        print("Total cost (Phase 2 normal):", total_normal)
+        print("Total cost (Phase 2 from scratch):", total_scratch)
+        plot_solution(data, model_p2_scratch.solution, total_customers=total_customers, custom_cost=routing_scratch)
+        plot_two_solutions(
+            data,
+            model_p1_buf.solution,
+            model_p2_normal.solution,
+            total_customers=total_customers,
+            titles=[
+                f"Phase 1, (α={alpha}, β={beta}), cost = {round(model_p1_buf.solution.value)}\n",
+                f"Phase 2, (α={alpha}, β={beta}), cost = {round(routing_normal)}\n(w/out switching cost of {proxy_count * FIXED_COST_FOR_RELOADING})",
+            ],
+            manual_title = True
+        )
+
+    return {
+        "phase1_benchmark": model_p1_bench.solution.value,
+        "phase1_buffered": model_p1_buf.solution.value,
+        "phase2_normal_routing": routing_normal,
+        "phase2_normal_total": total_normal,
+        "phase2_scratch": routing_scratch,
+    }
+
+def main_experiment(instance = "c201", 
+                alphas=[1], 
+                betas = [0], 
+                runs_per_instance=10, 
+                total_customers = 30, 
+                increase_tw_amount=100, 
+                noise_params=NOISE_PARAMS):
+    setup_logging("main_experiment")
+    logging.info(f"Starting main experiment with instance: {instance}, alphas ={alphas}, betas={betas}")
+    param_pairs = [(a, b) for a in alphas for b in betas]
+    results_total = {param_pair: {
+        "phase1_benchmark": [],
+        "phase1_buffered": [],
+        "phase2_normal_routing": [],
+        "phase2_normal_total": [],
+        "phase2_scratch": [],
+    } for param_pair in param_pairs}
+
+    total_runs = len(param_pairs) * runs_per_instance
+    start_time = time.time()
+    last_time = start_time
+    counter = 0
+    for alpha, beta in param_pairs:
+        for seed in range(runs_per_instance):
+            results = run_two_phase_experiment(
+                path=instance,
+                alpha=alpha,
+                beta=beta,
+                total_customers=total_customers,
+                increase_tw_amount=increase_tw_amount,
+                noise_params=noise_params,
+                seed=seed,        
+                print_solutions=False,
+            )
+
+            for experiment, cost in results.items():
+                results_total[(alpha, beta)][experiment].append(cost)
+            
+            counter += 1
+            current = time.time()
+            elapsed = current - start_time
+            run_time = current - last_time
+            avg_time_per_run = elapsed / counter
+            est_remaining_time = avg_time_per_run * (total_runs - counter)
+            last_time  = current 
+            hhmmss = time.strftime("%H:%M:%S", time.gmtime(est_remaining_time))
+            logging.info(f"Completed run {counter}/{total_runs} in {run_time:.2f} sec (Params: {alpha}, {beta}, Seed: {seed}). Estimated remaining time: {hhmmss}.")
+    return results_total
+
+def run_single(args):
+    # unpack all parameters
+    alpha, beta, seed, instance, total_customers, increase_tw_amount, noise_params = args
+    results = run_two_phase_experiment(
+        path=instance,
+        alpha=alpha,
+        beta=beta,
         total_customers=total_customers,
-        titles=[
-            "Phase-2 from scratch",
-            f"Phase 2 normal (α={alpha}, β={beta})\n(w/out switching cost of {proxy_count * FIXED_COST_FOR_RELOADING})",
-        ],
-        # proxy_extra_cost=proxy_extra_cost,
-        manual_costs=[total_scratch, total_normal]
-    )
-
-if __name__ == "__main__":
-    #ex 
-    INSTANCE = "c201"         
-    ALPHA = 1.3
-    BETA = 5                     
-
-    run_two_phase_experiment(
-        path=INSTANCE,
-        alpha=ALPHA,
-        beta=BETA,
-        total_customers=30,
-        increase_tw_amount=100,
-        noise_params=NOISE_PARAMS,
-        seed=0,        
+        increase_tw_amount=increase_tw_amount,
+        noise_params=noise_params,
+        seed=seed,
         print_solutions=False,
     )
-    '''
-    model0, model1 = run_instance('c205', 
-                                  alpha=1.05, 
-                                  beta=5, 
-                                  total_customers=30, 
-                                  plot_both_solutions=True,
-                                  print_solution=True, 
-                                  noise_params=NOISE_PARAMS,
-                                  increase_tw_amount=100
-                                  )
-    '''
-    # _test_run_multiple_params_phase1('rc107', params=[(1.0, 0), (1.5, 10)], total_customers=100)
+    return (alpha, beta, seed, results)
+
+def main_experiment_parallel(
+    instance="c201",
+    alphas=[1],
+    betas=[0],
+    runs_per_instance=10,
+    total_customers=30,
+    increase_tw_amount=100,
+    noise_params=NOISE_PARAMS,
+):
+    setup_logging("main_experiment")
+
+    # Create all (alpha, beta, seed, ...) combinations
+    param_pairs = [(a, b) for a in alphas for b in betas]
+    tasks = [
+        (a, b, seed, instance, total_customers, increase_tw_amount, noise_params)
+        for a, b in param_pairs
+        for seed in range(runs_per_instance)
+    ]
+
+    results_total = {
+        param_pair: {
+            "phase1_benchmark": [],
+            "phase1_buffered": [],
+            "phase2_normal_routing": [],
+            "phase2_normal_total": [],
+            "phase2_scratch": [],
+        }
+        for param_pair in param_pairs
+    }
+
+    start_time = time.time()
+    counter = 0
+    total_runs = len(tasks)
+
+    # Limit workers if needed to avoid overloading laptop
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        for alpha, beta, seed, result in executor.map(run_single, tasks):
+            for experiment, cost in result.items():
+                results_total[(alpha, beta)][experiment].append(cost)
+            counter += 1
+            elapsed = time.time() - start_time
+            avg_time_per_run = elapsed / counter
+            est_remaining_time = avg_time_per_run * (total_runs - counter)
+            hhmmss = time.strftime("%H:%M:%S", time.gmtime(est_remaining_time))
+            logging.info(
+                f"Completed run {counter}/{total_runs} "
+                f"(Params: {alpha}, {beta}, Seed: {seed}). "
+                f"Estimated remaining time: {hhmmss} ."
+            )
+
+    return results_total
+    
+def experiment_summary_to_excel(results_total, filename="results/experiment_results.xlsx"):
+    """
+    average experiments over the seeds
+    the  index should be ethe param_pair
+    the columns the experiment types
+    and i'm setting the column names manually
+    """
+    import os
+    if not os.path.exists("results"):
+        os.makedirs("results")
+
+    base_filename = filename.split(".xlsx")[0].split("/")[-1]
+    i = 2
+    while os.path.exists(f"results/{filename}.xlsx"):
+        filename = f"{base_filename}_{i}"
+        i += 1
+    summary_data = {}
+    for param_pair, experiments in results_total.items():
+        summary_data[param_pair] = {}
+        for experiment, costs in experiments.items():
+            avg_cost = sum(costs) / len(costs) if costs else 0
+            summary_data[param_pair][experiment] = avg_cost
+
+    df = pd.DataFrame.from_dict(summary_data, orient='index')
+
+    df = df[[
+        "phase1_benchmark",
+        "phase1_buffered",
+        "phase2_normal_routing",
+        "phase2_normal_total",
+        "phase2_scratch"
+    ]]
+
+    df.to_excel(filename)
+    logging.info(f"Experiment summary saved to {filename}")
+
+def setup_logging(filename):
+    import os
+    i = 2
+    og_filename = filename
+    while os.path.exists(f"logs/{filename}.log"):
+        filename = f"{og_filename}_{i}"
+        i += 1
+
+    logging.basicConfig(
+        filename=f"logs/{filename}.log",
+        filemode="w",
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s"
+    )
+
+def plot_param_results(results_total, alphas, betas):
+    values = {key: results_total[key]['phase2_normal_total'] for key in results_total}
+    alpha_results = {alpha: [] for alpha in alphas}
+    beta_results = {beta: [] for beta in betas}
+    for (alpha, beta), val in values.items():
+        print(f"Alpha: {alpha}, Beta: {beta}, Values: {val}")
+        print(alpha_results)
+        alpha_results[alpha].extend(val)
+        beta_results[beta].extend(val)
+    alpha_means = {alpha: sum(vals)/len(vals) for alpha, vals in alpha_results.items()}
+    alpha_std = {alpha: np.std(vals) for alpha, vals in alpha_results.items()}
+    beta_means = {beta: sum(vals)/len(vals) for beta, vals in beta_results.items()}
+    beta_std = {beta: np.std(vals) for beta, vals in beta_results.items()}
+    #plot alpha and beta side by side, as a line plot, with coloring for std
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+    ax[0].errorbar(list(alpha_means.keys()), list(alpha_means.values()), yerr=list(alpha_std.values()), fmt='-o', capsize=5)
+    ax[0].set_title('Average Phase 2 Total Cost vs Alpha')  
+    ax[0].set_xlabel('Alpha')
+    ax[0].set_ylabel('Average Phase 2 Total Cost')
+    ax[1].errorbar(list(beta_means.keys()), list(beta_means.values()), yerr=list(beta_std.values()), fmt='-o', capsize=5)
+    ax[1].set_title('Average Phase 2 Total Cost vs Beta')
+    ax[1].set_xlabel('Beta')
+    ax[1].set_ylabel('Average Phase 2 Total Cost')
+    plt.tight_layout()
+    plt.show()
+
+def plot_param_results_from_excel(
+    excel_path,
+    alpha_col_name="alpha",
+    beta_col_name="beta",
+    value_col="phase2_normal_total"
+):
+    """
+    Reads an experiment summary Excel file and plots
+    average Phase 2 total cost vs alpha and beta.
+    """
+
+    # Load Excel
+    df = pd.read_excel(excel_path, index_col=0)
+
+    # Parse index -> alpha, beta
+    if isinstance(df.index[0], str):
+        # index like "(alpha, beta)"
+        alphas, betas = zip(*[ast.literal_eval(idx) for idx in df.index])
+    else:
+        # index already tuples
+        alphas, betas = zip(*df.index)
+
+    df = df.copy()
+    df[alpha_col_name] = alphas
+    df[beta_col_name] = betas
+
+    # Group and compute stats
+    alpha_stats = df.groupby(alpha_col_name)[value_col].agg(["mean", "std"])
+    beta_stats  = df.groupby(beta_col_name)[value_col].agg(["mean", "std"])
+
+    # Plot
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+
+    ax[0].errorbar(
+        alpha_stats.index,
+        alpha_stats["mean"],
+        yerr=alpha_stats["std"],
+        fmt="-o",
+        capsize=5
+    )
+    ax[0].set_title("Average Phase 2 Total Cost vs Alpha")
+    ax[0].set_xlabel("Alpha")
+    ax[0].set_ylabel("Average Phase 2 Total Cost")
+
+    ax[1].errorbar(
+        beta_stats.index,
+        beta_stats["mean"],
+        yerr=beta_stats["std"],
+        fmt="-o",
+        capsize=5
+    )
+    ax[1].set_title("Average Phase 2 Total Cost vs Beta")
+    ax[1].set_xlabel("Beta")
+    ax[1].set_ylabel("Average Phase 2 Total Cost")
+
+    plt.tight_layout()
+    plt.show()
+
+def compare_param_pairs(p1, p2, N = 50):
+    setup_logging("comparison_run")
+    results = {p1: [], p2: []}
+    start_time = time.time()
+    logging.info(f"Starting comparison between params {p1} and {p2} over {N} seeds.")
+    for seed in range(N):
+        for params in (p1, p2):
+            logging.info(f"Running seed {seed+1}/{N} for params {params}.")
+            alpha, beta = params
+            cost = run_instance(
+                path="c201",
+                alpha=alpha,
+                beta=beta,
+                total_customers=40,
+                increase_tw_amount=50,
+                noise_params={
+                    "clip": [0.95, 3],
+                    "mean": 1.8,
+                    "distr": "gamma"}, 
+                seed=seed,
+                only_return_cost=True
+            )
+            results[params].append(cost)
+            elapsed = time.time() - start_time
+            avg_time_per_run = elapsed / ((seed + 1) * 2)
+            est_remaining_time = avg_time_per_run * (N * 2 - (seed + 1) * 2)
+            hhmmss = time.strftime("%H:%M:%S", time.gmtime(est_remaining_time))
+            logging.info(f"Completed seed {seed+1}/{N} for params {params}. Estimated remaining time: {hhmmss}.")
+            logging.info(f"Cost for params {params}, seed {seed}: {cost}")
+    logging.info(f"All runs completed. Results: {results}")
+    # compute the differences between params per seed
+    differences = [results[p1][i] - results[p2][i] for i in range(20)]
+    # use wilcoxon signed-rank test to see p2 is lower than p1
+    from scipy.stats import wilcoxon
+    stat, p_value = wilcoxon(differences, alternative='greater')
+    avg_diff = sum(differences) / len(differences)
+    logging.info(f"Average cost difference (p1 - p2): {avg_diff}")
+    logging.info(f"Wilcoxon signed-rank test statistic: {stat}, p-value: {p_value}")
+
+def plot_results_comparison(results, p1 = (1,0), p2 = (2, 7.5)):
+    plt.figure(figsize=(8, 6))
+    N = len(results[p1])
+    for i in range(N):
+        x = results[p1][i]
+        y = results[p2][i]
+        color = 'green' if y < x else 'red' if x < y else 'gray'
+        plt.plot((0,1), (x,y), marker='o', color=color, alpha=0.3)
+    plt.xticks([0, 1], [f'Params {p1}', f'Params {p2}'])
+    plt.ylabel('Phase 2 Total Cost')
+    plt.title('Pairwise omparison of Total Costs')
+    plt.tight_layout()
+    i = 0
+    while os.path.exists(f'plots/comparison_{p1}_vs_{p2}_{i}.png'):
+        i += 1
+    plt.savefig(f'plots/comparison_{p1}_vs_{p2}_{i}.png')    
+    logging.info(f"Comparison plot saved to plots/comparison_{p1}_vs_{p2}_{i}.png")
+    return results
+    
+if __name__ == "__main__":
+
+    #grid search
+    alphas = [1.0, 1.5, 2, 2.5, 3]
+    betas = [0, 2.5, 5, 7.5, 10, 12.5, 15]
+    results_total = main_experiment_parallel(
+        instance="c201",
+        alphas=alphas,
+        betas=betas,
+        runs_per_instance=5,
+        total_customers=40,
+        noise_params={
+            "clip": [0.95, 3],
+            "mean": 1.8,
+            "distr": "gamma"},
+        increase_tw_amount=50)
+    
+    
+    plot_param_results(results_total, alphas, betas)
+    experiment_summary_to_excel(results_total, filename="results/experiment_results_c201_bigger.xlsx")
+    # grid search
+
+
+
+    
+    # compare_param_pairs(p1 = (1, 0), 
+    #                     p2 = (2, 7.5), 
+    #                     N=100)
+
+
+    # actual results hardcoded
+    # results = {(1, 0): [1659.9846047030173, 1570.3718624903922, 1634.1680141033237, 2055.528132935422, 1577.444668693822, 1710.9678225213306, 1458.1450445284424, 1526.6640573606257, 1792.8221700485992, 1985.4066256890735, 1447.6448732057165, 1398.6623190534278, 1524.9705850877779, 1547.6248363454063, 1158.8149703158042, 1342.0850992515793, 1403.4966323664855, 1223.6444420306411, 1766.755420570909, 1247.118445849194, 2168.6104182289882, 1412.7697231938685, 1527.1697564841716, 1855.8735198009651, 2010.5896418259217, 1400.76694499658, 1333.8549232173502, 2387.6512664979136, 1454.2767106545994, 1369.0044609508755, 1858.6696566177686, 1151.9409820252945, 2292.613382428679, 1618.0667687245825, 1784.9782883727662, 1716.400434297397, 1885.243304803602, 1454.6601701931293, 1438.5842043058726, 2415.7034517951624, 1655.29983429025, 1606.3389758342341, 2129.3172392241886, 1591.7360519445035, 1634.4415986657073, 1399.8655871895467, 1283.399464477653, 1892.467565041435, 1357.7926870628974, 1549.859270786094, 2051.7142648318277, 2040.5257950657544, 1412.5030182638181, 1810.3884754380858, 1854.6141592109802, 1763.8952727527758, 1191.0250141815031, 1728.304996472647, 1727.3490182380858, 1831.0586859052337, 1637.003464269245, 1059.0742208303404, 1261.2230823677971, 1720.446592367138, 1496.6860190362386, 1337.4807466122065, 2491.88471690998, 1333.597769840813, 2175.8660024623982, 1580.2175042883132, 1848.4994164966909, 1881.9915472182406, 1727.0479683108686, 1704.7354369144628, 2027.695056422889, 1502.550137640575, 1371.7141059289204, 1231.5306663191125, 1795.3288438492175, 2222.250237594888, 1930.847008808746, 1166.1289037483011, 1480.860918443002, 1298.7416358956284, 1056.2884722385206, 1389.5327559966543, 1998.1391363327036, 1643.7216205839559, 1568.9332774147572, 1345.2001400623326, 1604.7153007201011, 1658.6648131673696, 1736.5851913349568, 1644.971053923781, 1355.5723551067124, 1776.0807975241714, 1563.5713774146386, 1438.1010978601855, 1759.5975830039772, 1671.5315507873281], 
+    #            (2, 7.5): [1860.638432840484, 1420.158776042318, 1408.5850749501494, 1423.3699648736465, 1373.4242494125015, 1714.3951316838384, 1493.265161714992, 1372.902402102353, 1656.138564624705, 1600.8946208410819, 1619.0048471556518, 1279.9521960991776, 1130.6618676601638, 1120.8517929299894, 1309.2764847377748, 1243.9520111438862, 1456.240609339643, 1087.690677076263, 1968.6401322189017, 1320.1423648302239, 1562.2253186176788, 1542.6023935323433, 1715.2902220570572, 1244.0352833592865, 1193.230764322667, 1358.8546180953501, 1387.62119596581, 2174.6279393085833, 1278.960165731778, 1239.9909397173492, 1689.1922056306432, 835.2108800995527, 1506.4107280813384, 1272.823848642927, 1975.2572785184027, 1483.821692942482, 1477.9198116511157, 1537.4888050788668, 1402.4611089673854, 2149.8834565339816, 1010.6572056073901, 1440.4596888925078, 1493.2817461818827, 1419.2855511479834, 1198.2979159308102, 1333.6791618364773, 1590.2233460336597, 1326.5556017527952, 1231.055430258182, 1337.0108680857707, 1200.376604347608, 0.0, 1295.497423825014, 1758.7352831833264, 1547.9752450091692, 1488.83439822141, 1007.3959225836413, 1672.5407963771302, 1143.4783465069027, 1200.0961930706512, 1311.3007594387734, 973.9620663381351, 1337.04878043161, 1363.403685990817, 1464.0111587404158, 1301.6489312620267, 1841.314917053913, 1248.7036719906712, 1685.320414791475, 1632.9691921765682, 1741.3503975182552, 1134.3628538051375, 1713.0201772123085, 1558.3574449150376, 1412.7994945284536, 1203.6160431742267, 1488.1205809901428, 1245.42051789405, 1382.305512348686, 1680.6964935975682, 1718.7503531265388, 1144.6564643052402, 1290.9704986679737, 1316.958698801015, 1286.9637467023745, 1297.6381690056826, 1396.4383174707891, 1254.0674628025629, 1832.4990874013868, 1166.0783020037366, 1232.317111862411, 1333.1486569188548, 1468.106511138111, 1796.5580493893547, 1373.1686664442946, 1333.9828071263005, 1406.2780101570065, 1138.6278775073865, 1564.729588343806, 1439.188446883954]}
+    # plot_results_comparison(results)
+

@@ -6,9 +6,6 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-#TODO: build safety for if alpha is too high and phase 1 already crashes
-#TODO: build safety for if phase 2 crashes once
 #TODO: build safety for if phases crash more often
 
 
